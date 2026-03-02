@@ -1,15 +1,17 @@
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
+import json
 
 import jwt
 from pydantic import BaseModel
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 
 from .database import engine, SessionLocal
 from . import models
+from .analysis import stt, scoring
 
 # JWT ayarları (üretimde env'den alınmalı)
 SECRET_KEY = "sizin-gizli-anahtar-buraya-degisitirin"
@@ -233,4 +235,84 @@ def get_interview(
         "transcript": transcript,
         "duration_seconds": duration,
         "feedback": feedback,
+    }
+
+
+# --- Video upload endpoint (skeleton) ---
+@app.post("/interviews/{interview_id}/video")
+async def upload_interview_video(
+    interview_id: int,
+    file: UploadFile | None = File(None),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    interview = db.query(models.Interview).filter(models.Interview.id == interview_id).first()
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    if interview.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You do not have access to this interview")
+
+    filename = file.filename if file else None
+    return {"status": "video upload - TODO", "filename": filename}
+
+
+# --- Interview analysis endpoint ---
+@app.post("/interviews/{interview_id}/analyze")
+def analyze_interview(
+    interview_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    interview = db.query(models.Interview).filter(models.Interview.id == interview_id).first()
+    if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    if interview.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You do not have access to this interview")
+
+    # 1) Transcript (currently dummy)
+    text, duration_seconds = stt.get_transcript(interview_id)
+
+    # 2) Upsert into Transcript table
+    transcript_row = db.query(models.Transcript).filter(models.Transcript.interview_id == interview_id).first()
+    if transcript_row:
+        transcript_row.text = text
+        transcript_row.duration_seconds = duration_seconds
+    else:
+        transcript_row = models.Transcript(
+            interview_id=interview_id,
+            text=text,
+            duration_seconds=duration_seconds,
+        )
+        db.add(transcript_row)
+
+    # 3) Rule-based scoring and feedback
+    feedback_data = scoring.score_transcript(text, duration_seconds=duration_seconds)
+    scores_json = json.dumps(feedback_data.get("scores", {}), ensure_ascii=False)
+
+    feedback_row = db.query(models.Feedback).filter(models.Feedback.interview_id == interview_id).first()
+    if feedback_row:
+        feedback_row.scores_json = scores_json
+        feedback_row.summary = feedback_data.get("summary")
+        feedback_row.strengths = feedback_data.get("strengths")
+        feedback_row.improvements = feedback_data.get("improvements")
+    else:
+        feedback_row = models.Feedback(
+            interview_id=interview_id,
+            scores_json=scores_json,
+            summary=feedback_data.get("summary"),
+            strengths=feedback_data.get("strengths"),
+            improvements=feedback_data.get("improvements"),
+        )
+        db.add(feedback_row)
+
+    db.commit()
+
+    return {
+        "status": "analyze - OK",
+        "transcript": transcript_row.text,
+        "duration_seconds": transcript_row.duration_seconds,
+        "scores": feedback_data.get("scores"),
+        "summary": feedback_data.get("summary"),
+        "strengths": feedback_data.get("strengths"),
+        "improvements": feedback_data.get("improvements"),
     }
