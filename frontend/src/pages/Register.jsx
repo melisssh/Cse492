@@ -3,7 +3,7 @@ import { useNavigate, Link } from 'react-router-dom'
 
 const API = '/api'
 
-export default function Login() {
+export default function Register() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -15,29 +15,30 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      const res = await fetch(`${API}/login`, {
+      const createRes = await fetch(`${API}/create-user`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.detail || 'Giriş başarısız')
+      const createData = await createRes.json()
+      if (!createRes.ok) {
+        setError(createData.error || 'Kayıt başarısız')
         return
       }
-      localStorage.setItem('token', data.access_token)
-      localStorage.setItem('user_id', String(data.user_id))
-      localStorage.setItem('email', data.email)
-      // Profil dolu mu kontrol et; boşsa önce profile yönlendir (zorunlu doldurma)
-      const profileRes = await fetch(`${API}/profile`, {
-        headers: { Authorization: `Bearer ${data.access_token}` },
+      const loginRes = await fetch(`${API}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
       })
-      const profileData = await profileRes.json()
-      if (!profileData?.full_name) {
-        navigate('/profile')
+      const loginData = await loginRes.json()
+      if (!loginRes.ok) {
+        setError('Kayıt oldu ama giriş yapılamadı. Giriş sayfasından deneyin.')
         return
       }
-      navigate('/dashboard')
+      localStorage.setItem('token', loginData.access_token)
+      localStorage.setItem('user_id', String(loginData.user_id))
+      localStorage.setItem('email', loginData.email)
+      navigate('/profile')
     } catch (err) {
       setError('Bağlantı hatası. Backend çalışıyor mu?')
     } finally {
@@ -71,25 +72,25 @@ export default function Login() {
           Mülakat Simülasyonu
         </Link>
         <Link
-          to="/register"
+          to="/login"
           style={{
             padding: '0.5rem 1rem',
-            border: '1px solid #111',
+            background: '#111',
+            color: '#fff',
             borderRadius: 8,
-            color: '#111',
             textDecoration: 'none',
             fontSize: '0.95rem',
           }}
         >
-          Kayıt ol
+          Giriş yap
         </Link>
       </header>
       <div style={{ maxWidth: 400, margin: '0 auto', padding: '3rem 1.5rem' }}>
         <h1 style={{ fontSize: '2rem', fontWeight: 700, color: '#111', marginBottom: '0.5rem', lineHeight: 1.2 }}>
-          Giriş yap
+          Kayıt ol
         </h1>
         <p style={{ fontSize: '1rem', color: '#6b7280', marginBottom: '1.5rem', lineHeight: 1.5 }}>
-          Hesabına giriş yapıp mülakatlarına devam et.
+          Ücretsiz hesap oluştur, mülakat simülasyonlarına başla.
         </p>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <label style={labelStyle}>
@@ -130,13 +131,13 @@ export default function Login() {
               opacity: loading ? 0.7 : 1,
             }}
           >
-            {loading ? 'Giriş yapılıyor...' : 'Giriş yap'}
+            {loading ? 'Kaydediliyor...' : 'Kayıt ol'}
           </button>
         </form>
         <p style={{ marginTop: '1.5rem', fontSize: '0.95rem', color: '#6b7280' }}>
-          Hesabın yoksa{' '}
-          <Link to="/register" style={{ color: '#111', fontWeight: 500, textDecoration: 'underline' }}>
-            Kayıt ol
+          Zaten hesabın var mı?{' '}
+          <Link to="/login" style={{ color: '#111', fontWeight: 500, textDecoration: 'underline' }}>
+            Giriş yap
           </Link>
         </p>
       </div>

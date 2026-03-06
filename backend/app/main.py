@@ -1,10 +1,11 @@
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
+import os
 import random
 
 import jwt
 from pydantic import BaseModel
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, File, UploadFile
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
@@ -87,10 +88,13 @@ def get_current_user(
     return user
 
 # Kullanıcı oluştur
+class CreateUserRequest(BaseModel):
+    email: str
+    password: str
+
 @app.post("/create-user")
-def create_user(email: str, password: str, db: Session = Depends(get_db)):
-    
-    # Email zaten var mı kontrol
+def create_user(payload: CreateUserRequest, db: Session = Depends(get_db)):
+    email, password = payload.email, payload.password
     existing_user = db.query(models.User).filter(models.User.email == email).first()
     if existing_user:
         return {"error": "Email already registered"}
@@ -132,6 +136,87 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         "user_id": user.id,
         "email": user.email,
     }
+
+
+# --- Profil (mülakat sorularına katkı; kayıt sonrası zorunlu doldurulur) ---
+class ProfileUpdate(BaseModel):
+    full_name: str | None = None
+    university: str | None = None
+    department: str | None = None
+    class_year: str | None = None
+
+
+@app.get("/profile")
+def get_profile(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    profile = db.query(models.Profile).filter(models.Profile.user_id == current_user.id).first()
+    if not profile:
+        return {}
+    return {
+        "full_name": profile.full_name,
+        "university": profile.university,
+        "department": profile.department,
+        "class_year": profile.class_year,
+        "cv_path": profile.cv_path,
+    }
+
+
+@app.put("/profile")
+def update_profile(
+    payload: ProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    profile = db.query(models.Profile).filter(models.Profile.user_id == current_user.id).first()
+    if not profile:
+        profile = models.Profile(user_id=current_user.id)
+        db.add(profile)
+        db.flush()
+    if payload.full_name is not None:
+        profile.full_name = payload.full_name
+    if payload.university is not None:
+        profile.university = payload.university
+    if payload.department is not None:
+        profile.department = payload.department
+    if payload.class_year is not None:
+        profile.class_year = payload.class_year
+    db.commit()
+    db.refresh(profile)
+    return {
+        "full_name": profile.full_name,
+        "university": profile.university,
+        "department": profile.department,
+        "class_year": profile.class_year,
+        "cv_path": profile.cv_path,
+    }
+
+
+# CV yükleme: dosyayı kaydeder, profile.cv_path günceller
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads", "profiles")
+
+@app.post("/profile/cv")
+def upload_profile_cv(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    profile = db.query(models.Profile).filter(models.Profile.user_id == current_user.id).first()
+    if not profile:
+        profile = models.Profile(user_id=current_user.id)
+        db.add(profile)
+        db.flush()
+    user_dir = os.path.join(UPLOAD_DIR, str(current_user.id))
+    os.makedirs(user_dir, exist_ok=True)
+    ext = os.path.splitext(file.filename or "cv")[-1] or ".pdf"
+    path = os.path.join(user_dir, f"cv{ext}")
+    with open(path, "wb") as f:
+        f.write(file.file.read())
+    profile.cv_path = path
+    db.commit()
+    db.refresh(profile)
+    return {"cv_path": profile.cv_path, "message": "CV yüklendi"}
 
 
 # --- Kategoriler (mülakat formu dropdown için) ---
@@ -373,3 +458,63 @@ def get_interview(
         "duration_seconds": duration,
         "feedback": feedback,
     }
+
+
+# --- AI Chat (geri bildirime dayalı sohbet; OpenAI entegrasyonu) ---
+class ChatMessage(BaseModel):
+    message: str
+
+
+@app.post("/interviews/{interview_id}/chat")
+def chat(
+    interview_id: int,
+    payload: ChatMessage,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    interview = db.query(models.Interview).filter(models.Interview.id == interview_id).first()
+    if not interview:
+        raise HTTPException(status_code=404, detail="Mülakat bulunamadı")
+    if interview.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Bu mülakata erişim yetkiniz yok")
+    transcript_row = db.query(models.Transcript).filter(models.Transcript.interview_id == interview_id).first()
+    feedback_row = db.query(models.Feedback).filter(models.Feedback.interview_id == interview_id).first()
+    transcript = (transcript_row.text or "") if transcript_row else ""
+    summary = (feedback_row.summary or "") if feedback_row else ""
+    strengths = (feedback_row.strengths or "") if feedback_row else ""
+    improvements = (feedback_row.improvements or "") if feedback_row else ""
+    user_msg = (payload.message or "").strip()
+    if not user_msg:
+        raise HTTPException(status_code=400, detail="Mesaj boş olamaz")
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        try:
+            from openai import OpenAI
+            client = OpenAI(api_key=api_key)
+            system_content = (
+                "Sen bir mülakat koçusun. Kullanıcının mülakat geri bildirimi (özet, güçlü yönler, gelişim alanları) ve konuşma metni (transcript) verilmiş. "
+                "Kullanıcının sorularına bu bağlamda kısa, yapıcı ve Türkçe yanıt ver."
+            )
+            user_content = (
+                f"Geri bildirim özeti: {summary}\nGüçlü yönler: {strengths}\nGelişim: {improvements}\n\n"
+                f"Konuşma metni (transcript): {transcript[:2000] if transcript else 'Yok'}\n\n"
+                f"Kullanıcı soruyor: {user_msg}"
+            )
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[
+                    {"role": "system", "content": system_content},
+                    {"role": "user", "content": user_content},
+                ],
+                max_tokens=500,
+            )
+            reply = response.choices[0].message.content or "Yanıt oluşturulamadı."
+        except Exception as e:
+            reply = f"AI yanıtı alınamadı ({type(e).__name__}). Özet: {summary or 'Henüz analiz yok.'} Gelişim: {improvements or '—'}"
+    else:
+        reply = f"Geri bildiriminize göre: {summary or 'Henüz analiz yok.'}"
+        if improvements:
+            reply += f" Gelişim önerisi: {improvements}"
+        reply += " (AI için OPENAI_API_KEY ortam değişkeni tanımlayın.)"
+    return {"reply": reply}

@@ -11,6 +11,18 @@ class User(Base):
     password = Column(String)
 
 
+class Profile(Base):
+    __tablename__ = "profiles"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
+    full_name = Column(String, nullable=True)
+    university = Column(String, nullable=True)
+    department = Column(String, nullable=True)
+    class_year = Column(String, nullable=True)   # örn. "3", "4. sınıf"
+    cv_path = Column(String, nullable=True)     # yüklenen CV dosya yolu
+
+
 class Interview(Base):
     __tablename__ = "interviews"
 

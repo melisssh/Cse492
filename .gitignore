@@ -10,6 +10,9 @@ __pycache__/
 *.db
 backend/test.db
 
+# Yüklenen dosyalar (CV vb.)
+backend/uploads/
+
 # macOS
 .DS_Store
 
