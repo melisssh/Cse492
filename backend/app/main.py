@@ -1,6 +1,14 @@
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 import json
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load .env from backend/ so it works even when uvicorn is run from project root
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_env_path)
 
 import jwt
 from pydantic import BaseModel
@@ -242,7 +250,7 @@ def get_interview(
 @app.post("/interviews/{interview_id}/video")
 async def upload_interview_video(
     interview_id: int,
-    file: UploadFile | None = File(None),
+    file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -252,8 +260,30 @@ async def upload_interview_video(
     if interview.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="You do not have access to this interview")
 
-    filename = file.filename if file else None
-    return {"status": "video upload - TODO", "filename": filename}
+    # Ensure upload directory exists: uploads/interviews/{id}/
+    base_dir = Path("uploads") / "interviews" / str(interview_id)
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build a safe file path
+    original_name = Path(file.filename or "video.mp4").name
+    target_path = base_dir / original_name
+
+    # Save file to disk
+    with target_path.open("wb") as out_file:
+        content = await file.read()
+        out_file.write(content)
+
+    # Store relative path on the interview record
+    interview.video_path = str(target_path)
+    db.add(interview)
+    db.commit()
+    db.refresh(interview)
+
+    return {
+        "status": "video upload - OK",
+        "filename": original_name,
+        "stored_path": interview.video_path,
+    }
 
 
 # --- Interview analysis endpoint ---
@@ -269,8 +299,11 @@ def analyze_interview(
     if interview.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="You do not have access to this interview")
 
-    # 1) Transcript (currently dummy)
-    text, duration_seconds = stt.get_transcript(interview_id)
+    # 1) Transcript (dummy if video/API missing; real via Whisper otherwise)
+    text, duration_seconds, stt_fallback_reason, stt_error_detail = stt.get_transcript(
+        interview_id=interview_id,
+        video_path=interview.video_path,
+    )
 
     # 2) Upsert into Transcript table
     transcript_row = db.query(models.Transcript).filter(models.Transcript.interview_id == interview_id).first()
@@ -315,4 +348,6 @@ def analyze_interview(
         "summary": feedback_data.get("summary"),
         "strengths": feedback_data.get("strengths"),
         "improvements": feedback_data.get("improvements"),
+        "stt_fallback_reason": stt_fallback_reason,
+        "stt_error_detail": stt_error_detail,
     }
