@@ -136,6 +136,114 @@ def get_categories(db: Session = Depends(get_db)):
     return [{"id": c.id, "name": c.name, "description": c.description} for c in categories]
 
 
+# --- Soru modelleri ---
+class QuestionCreate(BaseModel):
+    text: str
+    category_id: int
+    language: str                 # "tr" / "en"
+    difficulty: int | None = None
+    is_active: int = 1            # 1 = aktif, 0 = pasif
+
+
+class QuestionUpdate(BaseModel):
+    text: str | None = None
+    category_id: int | None = None
+    language: str | None = None
+    difficulty: int | None = None
+    is_active: int | None = None
+
+
+# --- Soru havuzu endpoint'leri (GET/POST/PUT) ---
+@app.get("/questions")
+def get_questions(
+    category_id: int | None = None,
+    language: str | None = None,
+    is_active: int | None = None,
+    db: Session = Depends(get_db),
+):
+    query = db.query(models.Question)
+
+    if category_id is not None:
+        query = query.filter(models.Question.category_id == category_id)
+    if language is not None:
+        query = query.filter(models.Question.language == language)
+    if is_active is not None:
+        query = query.filter(models.Question.is_active == is_active)
+
+    questions = query.all()
+    return [
+        {
+            "id": q.id,
+            "text": q.text,
+            "category_id": q.category_id,
+            "language": q.language,
+            "difficulty": q.difficulty,
+            "is_active": q.is_active,
+        }
+        for q in questions
+    ]
+
+
+@app.post("/questions")
+def create_question(
+    payload: QuestionCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),  # Şimdilik herkes ekleyebilsin
+):
+    new_q = models.Question(
+        text=payload.text,
+        category_id=payload.category_id,
+        language=payload.language,
+        difficulty=payload.difficulty,
+        is_active=payload.is_active,
+    )
+    db.add(new_q)
+    db.commit()
+    db.refresh(new_q)
+    return {
+        "id": new_q.id,
+        "text": new_q.text,
+        "category_id": new_q.category_id,
+        "language": new_q.language,
+        "difficulty": new_q.difficulty,
+        "is_active": new_q.is_active,
+    }
+
+
+@app.put("/questions/{question_id}")
+def update_question(
+    question_id: int,
+    payload: QuestionUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    q = db.query(models.Question).filter(models.Question.id == question_id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Soru bulunamadı")
+
+    if payload.text is not None:
+        q.text = payload.text
+    if payload.category_id is not None:
+        q.category_id = payload.category_id
+    if payload.language is not None:
+        q.language = payload.language
+    if payload.difficulty is not None:
+        q.difficulty = payload.difficulty
+    if payload.is_active is not None:
+        q.is_active = payload.is_active
+
+    db.commit()
+    db.refresh(q)
+    return {
+        "id": q.id,
+        "text": q.text,
+        "category_id": q.category_id,
+        "language": q.language,
+        "difficulty": q.difficulty,
+        "is_active": q.is_active,
+    }
+
+
 class InterviewCreate(BaseModel):
     title: str
     domain: str
