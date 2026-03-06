@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
+import random
 
 import jwt
 from pydantic import BaseModel
@@ -113,12 +114,16 @@ def get_users(db: Session = Depends(get_db)):
     return users
 
 # Login endpoint – başarılı girişte JWT token döner
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
 @app.post("/login")
-def login(email: str, password: str, db: Session = Depends(get_db)):
-    user = db.query(models.User).filter(models.User.email == email).first()
+def login(payload: LoginRequest, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == payload.email).first()
     if not user:
         raise HTTPException(status_code=401, detail="Kullanıcı bulunamadı")
-    if not verify_password(password, user.password):
+    if not verify_password(payload.password, user.password):
         raise HTTPException(status_code=401, detail="Şifre hatalı")
     token = create_access_token(data={"user_id": user.id})
     return {
@@ -265,6 +270,32 @@ def create_interview(
     db.add(new_interview)
     db.commit()
     db.refresh(new_interview)
+
+    # Sistem soruları seçer: domain + dildeki havuzdan en az 5, en fazla 7 rastgele
+    category = db.query(models.Category).filter(models.Category.name == payload.domain).first()
+    if category:
+        pool = (
+            db.query(models.Question)
+            .filter(
+                models.Question.category_id == category.id,
+                models.Question.language == payload.language,
+                models.Question.is_active == 1,
+            )
+            .all()
+        )
+        # En az 5, en fazla 7; havuzda daha az varsa hepsini al
+        target = random.randint(5, 7)
+        count = min(target, len(pool))
+        if count > 0:
+            chosen = random.sample(pool, count)
+            for order, q in enumerate(chosen, start=1):
+                iq = models.InterviewQuestion(
+                    interview_id=new_interview.id,
+                    question_id=q.id,
+                    order=order,
+                )
+                db.add(iq)
+            db.commit()
 
     return {
         "id": new_interview.id,
