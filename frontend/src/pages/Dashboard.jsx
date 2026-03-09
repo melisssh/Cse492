@@ -45,6 +45,27 @@ export default function Dashboard() {
     return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' })
   }
 
+  const handleDelete = async (id) => {
+    if (!window.confirm('Bu mülakatı silmek istediğine emin misin?')) return
+    try {
+      const res = await fetch(`${API}/interviews/${id}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        // Basit hata mesajı
+        setError(data.detail || 'Mülakat silinemedi')
+        return
+      }
+      setInterviews((prev) => prev.filter((item) => item.id !== id))
+    } catch {
+      setError('Mülakat silinirken hata oluştu')
+    }
+  }
+
   const userInitial = (email && email[0]) ? email[0].toUpperCase() : 'K'
 
   function logout() {
@@ -194,6 +215,23 @@ export default function Dashboard() {
                   position: 'relative',
                 }}
               >
+                <button
+                  type="button"
+                  onClick={() => handleDelete(i.id)}
+                  style={{
+                    position: 'absolute',
+                    top: 8,
+                    right: 8,
+                    border: 'none',
+                    background: 'transparent',
+                    color: '#9ca3af',
+                    cursor: 'pointer',
+                    fontSize: '0.9rem',
+                  }}
+                  title="Mülakatı sil"
+                >
+                  Sil
+                </button>
                 <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.25rem' }}>
                   {formatDate(i.created_at)}
                 </div>

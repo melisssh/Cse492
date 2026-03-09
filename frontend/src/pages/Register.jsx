@@ -15,24 +15,25 @@ export default function Register() {
     setError('')
     setLoading(true)
     try {
+      const normalizedEmail = email.trim().toLowerCase()
       const createRes = await fetch(`${API}/create-user`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: normalizedEmail, password }),
       })
       const createData = await createRes.json()
-      if (!createRes.ok) {
-        setError(createData.error || 'Kayıt başarısız')
+      if (!createRes.ok || createData.error) {
+        setError(createData.error || createData.detail || 'Kayıt başarısız')
         return
       }
       const loginRes = await fetch(`${API}/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: normalizedEmail, password }),
       })
       const loginData = await loginRes.json()
       if (!loginRes.ok) {
-        setError('Kayıt oldu ama giriş yapılamadı. Giriş sayfasından deneyin.')
+        setError(loginData.detail || 'Kayıt oldu ama giriş yapılamadı. Giriş sayfasından deneyin.')
         return
       }
       localStorage.setItem('token', loginData.access_token)

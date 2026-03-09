@@ -4,7 +4,7 @@ import os
 import random
 
 import jwt
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from fastapi import FastAPI, Depends, HTTPException, File, UploadFile
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -89,15 +89,17 @@ def get_current_user(
 
 # Kullanıcı oluştur
 class CreateUserRequest(BaseModel):
-    email: str
+    email: EmailStr
     password: str
 
 @app.post("/create-user")
 def create_user(payload: CreateUserRequest, db: Session = Depends(get_db)):
-    email, password = payload.email, payload.password
+    # Email'i normalize et (boşlukları kırp, küçük harfe çevir)
+    email = (payload.email or "").strip().lower()
+    password = payload.password
     existing_user = db.query(models.User).filter(models.User.email == email).first()
     if existing_user:
-        return {"error": "Email already registered"}
+        raise HTTPException(status_code=400, detail="Bu email ile zaten bir hesap var. Lütfen giriş yapın.")
 
     hashed_pw = hash_password(password)
 
@@ -458,6 +460,28 @@ def get_interview(
         "duration_seconds": duration,
         "feedback": feedback,
     }
+
+
+# --- Mülakat silme ---
+@app.delete("/interviews/{interview_id}")
+def delete_interview(
+    interview_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    interview = db.query(models.Interview).filter(models.Interview.id == interview_id).first()
+    if not interview:
+        raise HTTPException(status_code=404, detail="Mülakat bulunamadı")
+    if interview.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Bu mülakata erişim yetkiniz yok")
+
+    # İlişkili kayıtları sil (cascade yoksa manuel)
+    db.query(models.InterviewQuestion).filter(models.InterviewQuestion.interview_id == interview_id).delete(synchronize_session=False)
+    db.query(models.Transcript).filter(models.Transcript.interview_id == interview_id).delete(synchronize_session=False)
+    db.query(models.Feedback).filter(models.Feedback.interview_id == interview_id).delete(synchronize_session=False)
+    db.delete(interview)
+    db.commit()
+    return {"detail": "Mülakat silindi."}
 
 
 # --- AI Chat (geri bildirime dayalı sohbet; OpenAI entegrasyonu) ---
