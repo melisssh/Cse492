@@ -29,11 +29,12 @@ class Interview(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    title = Column(String, nullable=False)        # Örn: "Junior Backend Mülakatı"
-    domain = Column(String, nullable=False)       # Örn: "technical", "general"
-    language = Column(String, nullable=False)     # Örn: "tr", "en"
+    title = Column(String, nullable=False)        # e.g. "Junior Backend Interview"
+    domain = Column(String, nullable=False)       # e.g. "technical", "general"
+    language = Column(String, nullable=False)     # e.g. "en", "tr"
     status = Column(String, default="created")    # created/recording/completed/analyzed
     created_at = Column(DateTime, default=datetime.utcnow)
+    video_path = Column(String, nullable=True)    # path of uploaded interview video
 
 
 class Category(Base):
