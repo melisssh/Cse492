@@ -19,7 +19,7 @@ from passlib.context import CryptContext
 
 from .database import engine, SessionLocal
 from . import models
-from .analysis import stt, scoring
+from .analysis import stt, scoring, video_features
 
 # JWT ayarları (üretimde env'den alınmalı)
 SECRET_KEY = "sizin-gizli-anahtar-buraya-degisitirin"
@@ -318,9 +318,20 @@ def analyze_interview(
         )
         db.add(transcript_row)
 
-    # 3) Rule-based scoring and feedback
+    # 3) Rule-based scoring (transcript) + basic video metrics
     feedback_data = scoring.score_transcript(text, duration_seconds=duration_seconds)
-    scores_json = json.dumps(feedback_data.get("scores", {}), ensure_ascii=False)
+
+    video_metrics = {}
+    if interview.video_path:
+        try:
+            video_metrics = video_features.extract_features(interview.video_path)
+        except Exception:
+            video_metrics = {}
+
+    # Merge scores + video metrics into a single dict for storage
+    combined_scores = dict(feedback_data.get("scores", {}))
+    combined_scores["video_metrics"] = video_metrics
+    scores_json = json.dumps(combined_scores, ensure_ascii=False)
 
     feedback_row = db.query(models.Feedback).filter(models.Feedback.interview_id == interview_id).first()
     if feedback_row:
@@ -344,7 +355,7 @@ def analyze_interview(
         "status": "analyze - OK",
         "transcript": transcript_row.text,
         "duration_seconds": transcript_row.duration_seconds,
-        "scores": feedback_data.get("scores"),
+        "scores": combined_scores,
         "summary": feedback_data.get("summary"),
         "strengths": feedback_data.get("strengths"),
         "improvements": feedback_data.get("improvements"),
