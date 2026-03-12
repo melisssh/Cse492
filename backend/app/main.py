@@ -396,6 +396,10 @@ class QuestionUpdate(BaseModel):
     is_active: int | None = None
 
 
+class InterviewStatusUpdate(BaseModel):
+    status: str
+
+
 # --- Soru havuzu endpoint'leri (GET/POST/PUT) ---
 @app.get("/questions")
 def get_questions(
@@ -578,6 +582,27 @@ def list_interviews(
         }
         for i in interviews
     ]
+
+
+@app.post("/interviews/{interview_id}/status")
+def update_interview_status(
+    interview_id: int,
+    payload: InterviewStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    interview = db.query(models.Interview).filter(models.Interview.id == interview_id).first()
+    if not interview:
+        raise HTTPException(status_code=404, detail="Mülakat bulunamadı")
+    if interview.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Bu mülakata erişim yetkiniz yok")
+    interview.status = payload.status
+    db.commit()
+    db.refresh(interview)
+    return {
+        "id": interview.id,
+        "status": interview.status,
+    }
 
 
 # --- Tek mülakat detayı (sorular, transcript, feedback dahil) ---

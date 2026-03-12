@@ -104,6 +104,24 @@ export default function InterviewDetail() {
           Mülakat bittikten sonra video yüklenip analiz edilecek. Analiz ve geri bildirim <strong>Sonuç</strong> sayfasında paylaşılacak; bu ekran sadece sorular içindir.
         </p>
 
+        <p style={{ marginTop: '1.5rem' }}>
+          <Link
+            to={`/interview/${id}/run`}
+            style={{
+              padding: '0.75rem 1.5rem',
+              background: '#111',
+              color: '#fff',
+              textDecoration: 'none',
+              borderRadius: 8,
+              display: 'inline-block',
+              fontWeight: 500,
+              fontSize: '1rem',
+            }}
+          >
+            Mülakata başla
+          </Link>
+        </p>
+
         {hasResult ? (
           <p style={{ marginTop: '1.5rem' }}>
             <Link

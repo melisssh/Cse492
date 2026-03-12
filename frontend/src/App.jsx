@@ -11,6 +11,7 @@ import ResetPassword from './pages/ResetPassword'
 import AdminQuestions from './pages/AdminQuestions'
 import InterviewDetail from './pages/InterviewDetail'
 import InterviewResult from './pages/InterviewResult'
+import InterviewRun from './pages/InterviewRun'
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/admin/sorular" element={<AdminQuestions />} />
+        <Route path="/interview/:id/run" element={<InterviewRun />} />
         <Route path="/interview/:id" element={<InterviewDetail />} />
         <Route path="/interview/:id/sonuc" element={<InterviewResult />} />
         <Route path="/" element={<Landing />} />

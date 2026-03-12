@@ -16,3 +16,4 @@ openai>=1.0.0
 sqlalchemy
 passlib[bcrypt]
 email-validator
+bcrypt==3.2.2
