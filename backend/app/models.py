@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .database import Base
 
@@ -9,6 +9,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True)
     password = Column(String)
+    is_admin = Column(Integer, default=0)  # 0 = normal kullanıcı, 1 = admin
 
 
 class Profile(Base):
@@ -81,3 +82,13 @@ class Feedback(Base):
     summary = Column(String, nullable=True)
     strengths = Column(String, nullable=True)
     improvements = Column(String, nullable=True)
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    token = Column(String, unique=True, index=True, nullable=False)
+    expires_at = Column(DateTime, nullable=False, default=lambda: datetime.utcnow() + timedelta(hours=1))
+    used = Column(Integer, default=0)  # 0 = kullanılmadı, 1 = kullanıldı

@@ -2,6 +2,10 @@ from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 import os
 import random
+import smtplib
+import ssl
+from email.message import EmailMessage
+from uuid import uuid4
 
 import jwt
 from pydantic import BaseModel, EmailStr
@@ -66,6 +70,29 @@ def create_access_token(data: dict):
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
+def send_email(to_email: str, subject: str, body: str):
+    smtp_host = os.getenv("SMTP_HOST")
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_user = os.getenv("SMTP_USER")
+    smtp_pass = os.getenv("SMTP_PASS")
+    email_from = os.getenv("EMAIL_FROM", smtp_user)
+
+    if not (smtp_host and smtp_port and smtp_user and smtp_pass and email_from):
+        raise HTTPException(status_code=500, detail="Mail ayarları eksik (SMTP).")
+
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = email_from
+    msg["To"] = to_email
+    msg.set_content(body)
+
+    context = ssl.create_default_context()
+    with smtplib.SMTP(smtp_host, smtp_port) as server:
+        server.starttls(context=context)
+        server.login(smtp_user, smtp_pass)
+        server.send_message(msg)
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
@@ -87,6 +114,12 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Kullanıcı bulunamadı")
     return user
 
+
+def require_admin(current_user: models.User = Depends(get_current_user)):
+    if not getattr(current_user, "is_admin", 0):
+        raise HTTPException(status_code=403, detail="Yalnızca adminler erişebilir.")
+    return current_user
+
 # Kullanıcı oluştur
 class CreateUserRequest(BaseModel):
     email: EmailStr
@@ -97,6 +130,8 @@ def create_user(payload: CreateUserRequest, db: Session = Depends(get_db)):
     # Email'i normalize et (boşlukları kırp, küçük harfe çevir)
     email = (payload.email or "").strip().lower()
     password = payload.password
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Şifre en az 8 karakter olmalı.")
     existing_user = db.query(models.User).filter(models.User.email == email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Bu email ile zaten bir hesap var. Lütfen giriş yapın.")
@@ -112,6 +147,121 @@ def create_user(payload: CreateUserRequest, db: Session = Depends(get_db)):
         "id": new_user.id,
         "email": new_user.email
     }
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+@app.post("/change-password")
+def change_password(
+    payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    # Mevcut şifre doğru mu?
+    if not verify_password(payload.current_password, current_user.password):
+        raise HTTPException(status_code=400, detail="Mevcut şifreniz yanlış.")
+
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Yeni şifre en az 8 karakter olmalı.")
+
+    current_user.password = hash_password(payload.new_password)
+    db.commit()
+    return {"detail": "Şifre güncellendi."}
+
+
+@app.post("/forgot-password")
+def forgot_password(
+    payload: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    email = (payload.email or "").strip().lower()
+    user = db.query(models.User).filter(models.User.email == email).first()
+
+    generic_response = {
+        "detail": "Eğer bu email ile kayıtlı bir hesabın varsa, şifre sıfırlama linki gönderdik."
+    }
+
+    if not user:
+        return generic_response
+
+    token = uuid4().hex
+    expires_at = datetime.utcnow() + timedelta(hours=1)
+
+    db.query(models.PasswordResetToken).filter(
+        models.PasswordResetToken.user_id == user.id
+    ).delete(synchronize_session=False)
+
+    reset_token = models.PasswordResetToken(
+        user_id=user.id,
+        token=token,
+        expires_at=expires_at,
+        used=0,
+    )
+    db.add(reset_token)
+    db.commit()
+
+    frontend_base = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
+    reset_link = f"{frontend_base}/reset-password?token={token}"
+
+    subject = "Şifre sıfırlama talebi"
+    body = (
+        "Merhaba,\n\n"
+        "Şifrenizi sıfırlamak için aşağıdaki linke tıklayabilirsiniz:\n\n"
+        f"{reset_link}\n\n"
+        "Eğer bu isteği siz yapmadıysanız, bu maili dikkate almayın.\n\n"
+        "Mülakat Simülasyonu"
+    )
+
+    try:
+        send_email(to_email=email, subject=subject, body=body)
+    except Exception:
+        # Mail hatasında bile kullanıcıya aynı mesajı veriyoruz
+        return generic_response
+
+    return generic_response
+
+
+@app.post("/reset-password")
+def reset_password(
+    payload: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    token_str = (payload.token or "").strip()
+    new_password = payload.new_password
+
+    if len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="Yeni şifre en az 8 karakter olmalı.")
+
+    token_row = (
+        db.query(models.PasswordResetToken)
+        .filter(models.PasswordResetToken.token == token_str)
+        .first()
+    )
+
+    if not token_row or token_row.used == 1 or token_row.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Bu şifre sıfırlama linki geçersiz veya süresi dolmuş.")
+
+    user = db.query(models.User).filter(models.User.id == token_row.user_id).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="Kullanıcı bulunamadı.")
+
+    user.password = hash_password(new_password)
+    token_row.used = 1
+    db.commit()
+
+    return {"detail": "Şifre güncellendi."}
 
 # Tüm kullanıcıları listele
 @app.get("/users")
@@ -137,6 +287,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
         "token_type": "bearer",
         "user_id": user.id,
         "email": user.email,
+        "is_admin": getattr(user, "is_admin", 0),
     }
 
 
@@ -252,6 +403,7 @@ def get_questions(
     language: str | None = None,
     is_active: int | None = None,
     db: Session = Depends(get_db),
+    current_admin: models.User = Depends(require_admin),
 ):
     query = db.query(models.Question)
 
@@ -280,7 +432,7 @@ def get_questions(
 def create_question(
     payload: QuestionCreate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),  # Şimdilik herkes ekleyebilsin
+    current_admin: models.User = Depends(require_admin),
 ):
     new_q = models.Question(
         text=payload.text,
@@ -307,7 +459,7 @@ def update_question(
     question_id: int,
     payload: QuestionUpdate,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    current_admin: models.User = Depends(require_admin),
 ):
     q = db.query(models.Question).filter(models.Question.id == question_id).first()
     if not q:
@@ -334,6 +486,20 @@ def update_question(
         "difficulty": q.difficulty,
         "is_active": q.is_active,
     }
+
+
+# Geçici: belirli emailleri admin yap (kullandıktan sonra silebilirsin)
+@app.post("/make-admin")
+def make_admin(db: Session = Depends(get_db)):
+    admin_emails = [
+        "melis.halamoglu@std.yeditepe.edu.tr",
+        "selin.kartal@std.yeditepe.edu.tr",
+    ]
+    users = db.query(models.User).filter(models.User.email.in_(admin_emails)).all()
+    for u in users:
+        u.is_admin = 1
+    db.commit()
+    return {"detail": f"{len(users)} kullanıcı admin yapıldı."}
 
 
 class InterviewCreate(BaseModel):

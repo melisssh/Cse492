@@ -28,6 +28,11 @@ export default function Login() {
       localStorage.setItem('token', data.access_token)
       localStorage.setItem('user_id', String(data.user_id))
       localStorage.setItem('email', data.email)
+      if (typeof data.is_admin !== 'undefined') {
+        localStorage.setItem('is_admin', String(data.is_admin))
+      } else {
+        localStorage.removeItem('is_admin')
+      }
       // Profil dolu mu kontrol et; boşsa önce profile yönlendir (zorunlu doldurma)
       const profileRes = await fetch(`${API}/profile`, {
         headers: { Authorization: `Bearer ${data.access_token}` },
@@ -102,6 +107,11 @@ export default function Login() {
               style={inputStyle}
             />
           </label>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', fontSize: '0.85rem' }}>
+            <Link to="/forgot-password" style={{ color: '#2563eb', textDecoration: 'none' }}>
+              Şifreni mi unuttun?
+            </Link>
+          </div>
           <label style={labelStyle}>
             Şifre
             <input

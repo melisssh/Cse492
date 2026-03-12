@@ -10,6 +10,7 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const token = localStorage.getItem('token')
   const email = localStorage.getItem('email') || ''
+  const isAdmin = localStorage.getItem('is_admin') === '1'
 
   useEffect(() => {
     if (!token) {
@@ -90,6 +91,11 @@ export default function Dashboard() {
           Mülakat Simülasyonu
         </Link>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {isAdmin && (
+            <Link to="/admin/sorular" style={{ textDecoration: 'none', color: '#374151', fontSize: '0.9rem' }}>
+              Admin
+            </Link>
+          )}
           <Link to="/profile" style={{ textDecoration: 'none', color: '#374151', fontSize: '0.9rem' }}>Profil</Link>
           <button
             type="button"
@@ -107,7 +113,7 @@ export default function Dashboard() {
             Çıkış
           </button>
           <Link
-            to="/profile"
+            to="/account"
             style={{
               width: 36,
               height: 36,
