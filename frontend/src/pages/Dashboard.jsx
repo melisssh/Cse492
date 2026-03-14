@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
-const API = '/api'
+const API = import.meta.env.VITE_API_URL || '/api'
 
 export default function Dashboard() {
   const [interviews, setInterviews] = useState([])
@@ -73,6 +73,7 @@ export default function Dashboard() {
     localStorage.removeItem('token')
     localStorage.removeItem('user_id')
     localStorage.removeItem('email')
+    localStorage.removeItem('is_admin')
     navigate('/')
   }
 
@@ -207,60 +208,68 @@ export default function Dashboard() {
               <span style={{ fontWeight: 500 }}>Yeni mülakat oluştur</span>
             </Link>
 
-            {interviews.map((i) => (
-              <div
-                key={i.id}
-                style={{
-                  background: '#fff',
-                  border: '1px solid #e5e7eb',
-                  borderRadius: 12,
-                  padding: '1.25rem',
-                  minHeight: 160,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  position: 'relative',
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => handleDelete(i.id)}
+            {interviews.map((i) => {
+              const isCompletedOrAnalyzed = i.status === 'completed' || i.status === 'analyzed'
+              const primaryLink = isCompletedOrAnalyzed ? `/interview/${i.id}/sonuc` : `/interview/${i.id}`
+              const primaryCtaText = isCompletedOrAnalyzed ? 'Sonuca git →' : 'Mülakata git →'
+
+              return (
+                <div
+                  key={i.id}
                   style={{
-                    position: 'absolute',
-                    top: 8,
-                    right: 8,
-                    border: 'none',
-                    background: 'transparent',
-                    color: '#9ca3af',
-                    cursor: 'pointer',
-                    fontSize: '0.9rem',
-                  }}
-                  title="Mülakatı sil"
-                >
-                  Sil
-                </button>
-                <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.25rem' }}>
-                  {formatDate(i.created_at)}
-                </div>
-                <Link
-                  to={`/interview/${i.id}/sonuc`}
-                  style={{
-                    fontWeight: 600,
-                    fontSize: '1rem',
-                    color: '#111',
-                    textDecoration: 'none',
-                    marginBottom: '0.5rem',
+                    background: '#fff',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 12,
+                    padding: '1.25rem',
+                    minHeight: 160,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    position: 'relative',
                   }}
                 >
-                  {i.title || 'İsimsiz mülakat'}
-                </Link>
-                <div style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: 'auto' }}>
-                  {i.domain} · {i.language} · {i.status}
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(i.id)}
+                    style={{
+                      position: 'absolute',
+                      top: 8,
+                      right: 8,
+                      border: 'none',
+                      background: 'transparent',
+                      color: '#9ca3af',
+                      cursor: 'pointer',
+                      fontSize: '0.9rem',
+                    }}
+                    title="Mülakatı sil"
+                  >
+                    Sil
+                  </button>
+                  <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginBottom: '0.25rem' }}>
+                    {formatDate(i.created_at)}
+                  </div>
+                  <Link
+                    to={primaryLink}
+                    style={{
+                      fontWeight: 600,
+                      fontSize: '1rem',
+                      color: '#111',
+                      textDecoration: 'none',
+                      marginBottom: '0.5rem',
+                    }}
+                  >
+                    {i.title || 'İsimsiz mülakat'}
+                  </Link>
+                  <div style={{ fontSize: '0.875rem', color: '#6b7280', marginTop: 'auto' }}>
+                    {i.domain} · {i.language} · {i.status}
+                  </div>
+                  <div style={{ marginTop: '0.75rem' }}>
+                    <Link to={primaryLink} style={{ fontSize: '0.85rem', color: '#2563eb', textDecoration: 'none' }}>
+                      {primaryCtaText}
+                    </Link>
+                  </div>
                 </div>
-                <div style={{ marginTop: '0.75rem' }}>
-                  <Link to={`/interview/${i.id}/sonuc`} style={{ fontSize: '0.85rem', color: '#2563eb', textDecoration: 'none' }}>Sonuça git →</Link>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
 

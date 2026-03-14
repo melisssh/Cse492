@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 
-const API = '/api'
+const API = import.meta.env.VITE_API_URL || '/api'
 
 export default function InterviewDetail() {
   const { id } = useParams()
@@ -30,121 +30,93 @@ export default function InterviewDetail() {
       .finally(() => setLoading(false))
   }, [id, token, navigate])
 
-  const headerStyle = {
-    background: '#fff',
-    borderBottom: '1px solid #e5e7eb',
-    padding: '0.75rem 1.5rem',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  }
-
   if (!token) return null
   if (loading) return (
-    <div style={{ minHeight: '100vh', background: '#fff' }}>
-      <header style={headerStyle}>
-        <Link to="/dashboard" style={{ fontSize: '1.25rem', fontWeight: 600, color: '#111', textDecoration: 'none' }}>
-          Mülakat Simülasyonu
-        </Link>
-        <Link to="/dashboard" style={{ fontSize: '0.95rem', color: '#374151', textDecoration: 'none' }}>
-          Dashboard'a dön
-        </Link>
-      </header>
-      <div style={{ padding: '3rem 1.5rem', textAlign: 'center', color: '#6b7280' }}>Yükleniyor...</div>
+    <div style={{ minHeight: '100vh', background: 'rgba(15,23,42,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ maxWidth: 420, width: '100%', margin: '0 1.5rem', padding: '2rem 1.75rem', borderRadius: 16, background: '#fff', textAlign: 'center', color: '#6b7280' }}>
+        Yükleniyor...
+      </div>
     </div>
   )
   if (error || !interview) return (
-    <div style={{ minHeight: '100vh', background: '#fff' }}>
-      <header style={headerStyle}>
-        <Link to="/dashboard" style={{ fontSize: '1.25rem', fontWeight: 600, color: '#111', textDecoration: 'none' }}>
-          Mülakat Simülasyonu
-        </Link>
-        <Link to="/dashboard" style={{ fontSize: '0.95rem', color: '#374151', textDecoration: 'none' }}>
-          Dashboard'a dön
-        </Link>
-      </header>
-      <div style={{ padding: '3rem 1.5rem', color: '#dc2626', textAlign: 'center' }}>{error || 'Bulunamadı'}</div>
+    <div style={{ minHeight: '100vh', background: 'rgba(15,23,42,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ maxWidth: 420, width: '100%', margin: '0 1.5rem', padding: '2rem 1.75rem', borderRadius: 16, background: '#fff', textAlign: 'center', color: '#dc2626' }}>
+        {error || 'Bulunamadı'}
+        <div style={{ marginTop: '1rem' }}>
+          <Link to="/dashboard" style={{ fontSize: '0.9rem', color: '#111', textDecoration: 'underline' }}>
+            Dashboard'a dön
+          </Link>
+        </div>
+      </div>
     </div>
   )
 
   const hasResult = interview.transcript || (interview.feedback && (interview.feedback.summary || interview.feedback.strengths || interview.feedback.improvements))
 
   return (
-    <div style={{ minHeight: '100vh', background: '#f5f5f5' }}>
-      <header style={headerStyle}>
-        <Link to="/dashboard" style={{ fontSize: '1.25rem', fontWeight: 600, color: '#111', textDecoration: 'none' }}>
-          Mülakat Simülasyonu
-        </Link>
-        <Link to="/dashboard" style={{ fontSize: '0.95rem', color: '#374151', textDecoration: 'none' }}>
-          Dashboard'a dön
-        </Link>
-      </header>
-      <div style={{ maxWidth: 640, margin: '0 auto', padding: '3rem 1.5rem', background: '#fff', minHeight: 'calc(100vh - 57px)', boxSizing: 'border-box' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 700, color: '#111', marginBottom: '0.5rem', lineHeight: 1.2 }}>
+    <div
+      style={{
+        minHeight: '100vh',
+        background: 'rgba(15,23,42,0.85)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 420,
+          width: '100%',
+          margin: '0 1.5rem',
+          padding: '2.25rem 2rem',
+          borderRadius: 16,
+          background: '#fff',
+          boxShadow: '0 24px 60px rgba(15,23,42,0.4)',
+          textAlign: 'center',
+        }}
+      >
+        <p style={{ fontSize: '0.8rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#9ca3af', marginBottom: '0.75rem' }}>
+          MÜLAKAT HAZIR
+        </p>
+        <h1 style={{ fontSize: '1.6rem', fontWeight: 700, color: '#111', marginBottom: '0.25rem', lineHeight: 1.2 }}>
           {interview.title}
         </h1>
-        <p style={{ fontSize: '1rem', color: '#6b7280', marginBottom: '1.5rem', lineHeight: 1.5 }}>
-          {interview.domain} · {interview.language} · {interview.status}
+        <p style={{ fontSize: '0.9rem', color: '#6b7280', marginBottom: '1.5rem' }}>
+          {interview.domain} · {interview.language}
         </p>
 
-        <section>
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, color: '#374151', marginBottom: '0.75rem' }}>Mülakat soruları</h2>
-          {interview.questions?.length ? (
-            <ol style={{ paddingLeft: '1.25rem', margin: 0 }}>
-              {interview.questions.map((q, i) => (
-                <li key={i} style={{ marginBottom: '0.75rem', color: '#111', lineHeight: 1.5 }}>{q.text}</li>
-              ))}
-            </ol>
-          ) : (
-            <p style={{ color: '#6b7280', margin: 0 }}>Bu mülakat için henüz soru atanmamış.</p>
-          )}
-        </section>
-
-        <p style={{ marginTop: '1.5rem', padding: '1rem', background: '#f5f5f5', borderRadius: 8, fontSize: '0.95rem', color: '#6b7280', lineHeight: 1.5 }}>
-          Mülakat bittikten sonra video yüklenip analiz edilecek. Analiz ve geri bildirim <strong>Sonuç</strong> sayfasında paylaşılacak; bu ekran sadece sorular içindir.
+        <p style={{ fontSize: '0.95rem', color: '#4b5563', marginBottom: '1.5rem', lineHeight: 1.6 }}>
+          Kamera ve mikrofon izni isteyeceğiz. Video kaydı alınırken sorular tek tek ekranda görünecek.
+          Hazırsan mülakata başlayabilirsin.
         </p>
 
-        <p style={{ marginTop: '1.5rem' }}>
-          <Link
-            to={`/interview/${id}/run`}
-            style={{
-              padding: '0.75rem 1.5rem',
-              background: '#111',
-              color: '#fff',
-              textDecoration: 'none',
-              borderRadius: 8,
-              display: 'inline-block',
-              fontWeight: 500,
-              fontSize: '1rem',
-            }}
-          >
-            Mülakata başla
+        <Link
+          to={`/interview/${id}/run`}
+          style={{
+            display: 'inline-block',
+            padding: '0.85rem 1.9rem',
+            background: '#111',
+            color: '#fff',
+            textDecoration: 'none',
+            borderRadius: 999,
+            fontWeight: 500,
+            fontSize: '1rem',
+            minWidth: 190,
+          }}
+        >
+          Mülakata başla
+        </Link>
+
+        <div style={{ marginTop: '1.25rem', display: 'flex', justifyContent: 'center', gap: '1rem', fontSize: '0.85rem' }}>
+          <Link to="/dashboard" style={{ color: '#6b7280', textDecoration: 'underline' }}>
+            Daha sonra
           </Link>
-        </p>
-
-        {hasResult ? (
-          <p style={{ marginTop: '1.5rem' }}>
-            <Link
-              to={`/interview/${id}/sonuc`}
-              style={{
-                padding: '0.75rem 1.5rem',
-                background: '#111',
-                color: '#fff',
-                textDecoration: 'none',
-                borderRadius: 8,
-                display: 'inline-block',
-                fontWeight: 500,
-                fontSize: '1rem',
-              }}
-            >
-              Sonuçları gör (analiz ve geri bildirim)
+          {hasResult && (
+            <Link to={`/interview/${id}/sonuc`} style={{ color: '#111', textDecoration: 'underline' }}>
+              Sonuçları gör
             </Link>
-          </p>
-        ) : (
-          <p style={{ marginTop: '1.5rem', color: '#6b7280', fontSize: '0.95rem' }}>
-            Analiz hazır olduğunda &quot;Sonuçları gör&quot; butonu burada görünecek.
-          </p>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )

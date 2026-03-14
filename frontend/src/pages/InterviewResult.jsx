@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 
-const API = '/api'
+const API = import.meta.env.VITE_API_URL || '/api'
 
 export default function InterviewResult() {
   const { id } = useParams()
@@ -28,6 +28,12 @@ export default function InterviewResult() {
         return res.json()
       })
       .then((data) => {
+        // Eğer mülakat daha tamamlanmadıysa sonuç sayfasına erişme,
+        // kullanıcıyı mülakat detayına geri gönder.
+        if (!data || (data.status !== 'completed' && data.status !== 'analyzed')) {
+          navigate(`/interview/${id}`)
+          return
+        }
         setInterview(data)
         if (data?.feedback) {
           setChatMessages([

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 
-const API = '/api'
+const API = import.meta.env.VITE_API_URL || '/api'
 
 export default function Login() {
   const [email, setEmail] = useState('')

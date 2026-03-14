@@ -17,3 +17,5 @@ sqlalchemy
 passlib[bcrypt]
 email-validator
 bcrypt==3.2.2
+pymysql
+cryptography
