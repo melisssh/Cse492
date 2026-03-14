@@ -31,6 +31,7 @@ class Interview(Base):
     language = Column(String(20), nullable=False)
     status = Column(String(50), default="created")
     created_at = Column(DateTime, default=datetime.utcnow)
+    video_path = Column(String, nullable=True)    # path of uploaded interview video
 
 class Category(Base):
     __tablename__ = "categories"
