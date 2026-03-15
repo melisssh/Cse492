@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
+from pathlib import Path
 import json
 import os
-from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -10,10 +10,8 @@ from dotenv import load_dotenv
 _env_path = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(_env_path)
 
-import jwt
-from pydantic import BaseModel
+
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
-import os
 import random
 import smtplib
 import ssl
@@ -22,7 +20,7 @@ from uuid import uuid4
 
 import jwt
 from pydantic import BaseModel, EmailStr
-from fastapi import FastAPI, Depends, HTTPException, File, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
@@ -58,6 +56,21 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+# CORS: frontend ve backend farklı origin'lerde çalışırken (ör. 5173 ↔ 8000)
+# tarayıcıların istek atabilmesi için gerekli.
+origins = [
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Password hash sistemi
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -619,6 +632,46 @@ def update_interview_status(
     }
 
 
+# --- Video upload (ham video dosyasını saklar, analiz daha sonra) ---
+UPLOAD_INTERVIEWS_DIR = Path("uploads") / "interviews"
+
+
+@app.post("/interviews/{interview_id}/video")
+async def upload_interview_video(
+    interview_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    interview = (
+        db.query(models.Interview)
+        .filter(models.Interview.id == interview_id)
+        .first()
+    )
+    if not interview:
+        raise HTTPException(status_code=404, detail="Mülakat bulunamadı")
+    if interview.user_id != current_user.id:
+        raise HTTPException(
+            status_code=403, detail="Bu mülakata erişim yetkiniz yok"
+        )
+
+    UPLOAD_INTERVIEWS_DIR.mkdir(parents=True, exist_ok=True)
+    interview_dir = UPLOAD_INTERVIEWS_DIR / str(interview_id)
+    interview_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = (file.filename or "interview.webm").replace("/", "_")
+    target_path = interview_dir / safe_name
+
+    data = await file.read()
+    target_path.write_bytes(data)
+
+    return {
+        "detail": "Video kaydedildi.",
+        "filename": safe_name,
+        "path": str(target_path),
+    }
+
+
 # --- Tek mülakat detayı (sorular, transcript, feedback dahil) ---
 @app.get("/interviews/{interview_id}")
 def get_interview(
@@ -679,7 +732,11 @@ def delete_interview(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    interview = db.query(models.Interview).filter(models.Interview.id == interview_id).first()
+    interview = (
+        db.query(models.Interview)
+        .filter(models.Interview.id == interview_id)
+        .first()
+    )
     if not interview:
         raise HTTPException(status_code=404, detail="Interview not found")
     if interview.user_id != current_user.id:
@@ -717,12 +774,20 @@ def analyze_interview(
     interview_id: int,
         raise HTTPException(status_code=404, detail="Mülakat bulunamadı")
     if interview.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Bu mülakata erişim yetkiniz yok")
+        raise HTTPException(
+            status_code=403, detail="Bu mülakata erişim yetkiniz yok"
+        )
 
     # İlişkili kayıtları sil (cascade yoksa manuel)
-    db.query(models.InterviewQuestion).filter(models.InterviewQuestion.interview_id == interview_id).delete(synchronize_session=False)
-    db.query(models.Transcript).filter(models.Transcript.interview_id == interview_id).delete(synchronize_session=False)
-    db.query(models.Feedback).filter(models.Feedback.interview_id == interview_id).delete(synchronize_session=False)
+    db.query(models.InterviewQuestion).filter(
+        models.InterviewQuestion.interview_id == interview_id
+    ).delete(synchronize_session=False)
+    db.query(models.Transcript).filter(
+        models.Transcript.interview_id == interview_id
+    ).delete(synchronize_session=False)
+    db.query(models.Feedback).filter(
+        models.Feedback.interview_id == interview_id
+    ).delete(synchronize_session=False)
     db.delete(interview)
     db.commit()
     return {"detail": "Mülakat silindi."}
@@ -740,7 +805,11 @@ def chat(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    interview = db.query(models.Interview).filter(models.Interview.id == interview_id).first()
+    interview = (
+        db.query(models.Interview)
+        .filter(models.Interview.id == interview_id)
+        .first()
+    )
     if not interview:
         raise HTTPException(status_code=404, detail="Interview not found")
     if interview.user_id != current_user.id:
@@ -811,13 +880,25 @@ def chat(
     }
         raise HTTPException(status_code=404, detail="Mülakat bulunamadı")
     if interview.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Bu mülakata erişim yetkiniz yok")
-    transcript_row = db.query(models.Transcript).filter(models.Transcript.interview_id == interview_id).first()
-    feedback_row = db.query(models.Feedback).filter(models.Feedback.interview_id == interview_id).first()
+        raise HTTPException(
+            status_code=403, detail="Bu mülakata erişim yetkiniz yok"
+        )
+
+    transcript_row = (
+        db.query(models.Transcript)
+        .filter(models.Transcript.interview_id == interview_id)
+        .first()
+    )
+    feedback_row = (
+        db.query(models.Feedback)
+        .filter(models.Feedback.interview_id == interview_id)
+        .first()
+    )
     transcript = (transcript_row.text or "") if transcript_row else ""
     summary = (feedback_row.summary or "") if feedback_row else ""
     strengths = (feedback_row.strengths or "") if feedback_row else ""
     improvements = (feedback_row.improvements or "") if feedback_row else ""
+
     user_msg = (payload.message or "").strip()
     if not user_msg:
         raise HTTPException(status_code=400, detail="Mesaj boş olamaz")
@@ -826,6 +907,7 @@ def chat(
     if api_key:
         try:
             from openai import OpenAI
+
             client = OpenAI(api_key=api_key)
             system_content = (
                 "Sen bir mülakat koçusun. Kullanıcının mülakat geri bildirimi (özet, güçlü yönler, gelişim alanları) ve konuşma metni (transcript) verilmiş. "
@@ -845,11 +927,15 @@ def chat(
                 max_tokens=500,
             )
             reply = response.choices[0].message.content or "Yanıt oluşturulamadı."
-        except Exception as e:
-            reply = f"AI yanıtı alınamadı ({type(e).__name__}). Özet: {summary or 'Henüz analiz yok.'} Gelişim: {improvements or '—'}"
+        except Exception:
+            reply = (
+                f"AI yanıtı alınamadı. Özet: {summary or 'Henüz analiz yok.'} "
+                f"Gelişim: {improvements or '—'}"
+            )
     else:
         reply = f"Geri bildiriminize göre: {summary or 'Henüz analiz yok.'}"
         if improvements:
             reply += f" Gelişim önerisi: {improvements}"
         reply += " (AI için OPENAI_API_KEY ortam değişkeni tanımlayın.)"
+
     return {"reply": reply}
