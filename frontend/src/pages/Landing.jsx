@@ -3,14 +3,15 @@ import { Link } from 'react-router-dom'
 export default function Landing() {
   return (
     <div style={{ minHeight: '100vh', background: '#fff' }}>
-      {/* Üst bar: logo sol, Kayıt ol + Giriş yap sağ */}
-      <header style={{
-        padding: '1rem 1.5rem',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        borderBottom: '1px solid #e5e7eb',
-      }}>
+      <header
+        style={{
+          padding: '1rem 1.5rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          borderBottom: '1px solid #e5e7eb',
+        }}
+      >
         <span style={{ fontSize: '1.25rem', fontWeight: 600, color: '#111' }}>
           Mülakat Simülasyonu
         </span>
@@ -44,31 +45,18 @@ export default function Landing() {
         </div>
       </header>
 
-      {/* Ana alan: başlık + açıklama + buton */}
-      <main style={{
-        maxWidth: 640,
-        margin: '0 auto',
-        padding: '4rem 1.5rem',
-        textAlign: 'center',
-      }}>
-        <h1 style={{
-          fontSize: '2.5rem',
-          fontWeight: 700,
-          color: '#111',
-          marginBottom: '1rem',
-          lineHeight: 1.2,
-        }}>
-          Mülakatınızı{' '}
-          <span style={{ background: 'linear-gradient(90deg, #2563eb, #059669)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
-            Geliştirin
-          </span>
+      <main
+        style={{
+          maxWidth: 640,
+          margin: '0 auto',
+          padding: '4rem 1.5rem',
+          textAlign: 'center',
+        }}
+      >
+        <h1 style={{ fontSize: '2.5rem', fontWeight: 700, color: '#111', marginBottom: '1rem', lineHeight: 1.2 }}>
+          Mülakatınızı <span style={{ color: '#2563eb' }}>Geliştirin</span>
         </h1>
-        <p style={{
-          fontSize: '1.125rem',
-          color: '#6b7280',
-          lineHeight: 1.6,
-          marginBottom: '2rem',
-        }}>
+        <p style={{ fontSize: '1.125rem', color: '#6b7280', lineHeight: 1.6, marginBottom: '2rem' }}>
           Yapay zeka destekli mülakat simülasyonu. Sorulara cevap verin, geri bildirim ve gelişim önerileri alın.
         </p>
         <Link
@@ -90,3 +78,4 @@ export default function Landing() {
     </div>
   )
 }
+

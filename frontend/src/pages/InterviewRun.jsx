@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 
 const API = import.meta.env.VITE_API_URL || '/api'
@@ -17,6 +17,24 @@ export default function InterviewRun() {
   const streamRef = useRef(null)
   const mediaRecorderRef = useRef(null)
   const recordedChunksRef = useRef([])
+
+  const stopSpeaking = useCallback(() => {
+    if (typeof window !== 'undefined' && window.speechSynthesis) {
+      window.speechSynthesis.cancel()
+    }
+  }, [])
+
+  const speakQuestionText = useCallback(
+    (text, lang) => {
+      if (typeof window === 'undefined' || !window.speechSynthesis || !text?.trim()) return
+      stopSpeaking()
+      const u = new SpeechSynthesisUtterance(text.trim())
+      u.lang = lang === 'en' ? 'en-US' : 'tr-TR'
+      u.rate = 0.92
+      window.speechSynthesis.speak(u)
+    },
+    [stopSpeaking]
+  )
 
   const navigate = useNavigate()
   const token = localStorage.getItem('token')
@@ -41,8 +59,11 @@ export default function InterviewRun() {
   }, [id, token, navigate])
 
   useEffect(() => {
-    // Sayfa kapanırken stream varsa durdur
+    // Sayfa kapanırken stream + seslendirme durdur
     return () => {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel()
+      }
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
         try {
           mediaRecorderRef.current.stop()
@@ -55,6 +76,24 @@ export default function InterviewRun() {
       }
     }
   }, [])
+
+  const currentQuestionText =
+    interview?.questions?.[currentIndex]?.text ?? ''
+  const interviewLang = interview?.language ?? 'tr'
+
+  // Soru değişince (kayıt aktifken) otomatik sesli oku
+  useEffect(() => {
+    if (!recording || currentIndex < 0 || !currentQuestionText) return
+    speakQuestionText(currentQuestionText, interviewLang)
+    return () => stopSpeaking()
+  }, [
+    currentIndex,
+    recording,
+    currentQuestionText,
+    interviewLang,
+    speakQuestionText,
+    stopSpeaking,
+  ])
 
   async function handleStart() {
     setError('')
@@ -312,9 +351,43 @@ export default function InterviewRun() {
                     </p>
                   )}
                 </div>
-                <div style={{ padding: '1rem', borderRadius: 8, background: '#f3f4f6', marginBottom: '1rem' }}>
+                <div style={{ padding: '1rem', borderRadius: 8, background: '#f3f4f6', marginBottom: '0.75rem' }}>
                   {currentQuestion.text}
                 </div>
+                {typeof window !== 'undefined' && window.speechSynthesis && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1rem' }}>
+                    <button
+                      type="button"
+                      onClick={() => speakQuestionText(currentQuestion.text, interviewLang)}
+                      style={{
+                        padding: '0.4rem 0.85rem',
+                        fontSize: '0.85rem',
+                        background: '#fff',
+                        border: '1px solid #d1d5db',
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        color: '#374151',
+                      }}
+                    >
+                      Tekrar oku
+                    </button>
+                    <button
+                      type="button"
+                      onClick={stopSpeaking}
+                      style={{
+                        padding: '0.4rem 0.85rem',
+                        fontSize: '0.85rem',
+                        background: '#fff',
+                        border: '1px solid #d1d5db',
+                        borderRadius: 6,
+                        cursor: 'pointer',
+                        color: '#374151',
+                      }}
+                    >
+                      Okumayı durdur
+                    </button>
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={handleNext}

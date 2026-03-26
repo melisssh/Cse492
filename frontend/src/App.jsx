@@ -16,19 +16,20 @@ import InterviewRun from './pages/InterviewRun'
 export default function App() {
   return (
     <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/interview/new" element={<InterviewNew />} />
-        <Route path="/profile" element={<Profile />} />
-        <Route path="/account" element={<Account />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/admin/sorular" element={<AdminQuestions />} />
-        <Route path="/interview/:id/run" element={<InterviewRun />} />
-        <Route path="/interview/:id" element={<InterviewDetail />} />
-        <Route path="/interview/:id/sonuc" element={<InterviewResult />} />
-        <Route path="/" element={<Landing />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/interview/new" element={<InterviewNew />} />
+      <Route path="/profile" element={<Profile />} />
+      <Route path="/account" element={<Account />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/admin/sorular" element={<AdminQuestions />} />
+      <Route path="/interview/:id/run" element={<InterviewRun />} />
+      <Route path="/interview/:id" element={<InterviewDetail />} />
+      <Route path="/interview/:id/sonuc" element={<InterviewResult />} />
+      <Route path="/" element={<Landing />} />
     </Routes>
   )
 }
+
