@@ -3,6 +3,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import json
 import os
+
+from dotenv import load_dotenv
+
+# Load .env from backend/ so it works even when uvicorn is run from project root
+_env_path = Path(__file__).resolve().parent.parent / ".env"
+load_dotenv(_env_path)
+
+
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 import random
 import smtplib
 import ssl
@@ -14,7 +23,6 @@ import urllib.error
 
 import jwt
 from pydantic import BaseModel, EmailStr
-from fastapi import FastAPI, Depends, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -22,6 +30,7 @@ from passlib.context import CryptContext
 
 from .database import engine, SessionLocal
 from . import models
+from .analysis import stt, scoring, video_features
 
 # JWT ayarları (üretimde env'den alınmalı)
 SECRET_KEY = "sizin-gizli-anahtar-buraya-degisitirin"
@@ -1040,6 +1049,11 @@ def get_interview(
     }
 
 
+# --- Video upload endpoint (skeleton) ---
+@app.post("/interviews/{interview_id}/video")
+async def upload_interview_video(
+    interview_id: int,
+    file: UploadFile = File(...),
 # --- Mülakat silme ---
 @app.delete("/interviews/{interview_id}")
 def delete_interview(
@@ -1053,6 +1067,40 @@ def delete_interview(
         .first()
     )
     if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    if interview.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You do not have access to this interview")
+
+    # Ensure upload directory exists: uploads/interviews/{id}/
+    base_dir = Path("uploads") / "interviews" / str(interview_id)
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build a safe file path
+    original_name = Path(file.filename or "video.mp4").name
+    target_path = base_dir / original_name
+
+    # Save file to disk
+    with target_path.open("wb") as out_file:
+        content = await file.read()
+        out_file.write(content)
+
+    # Store relative path on the interview record
+    interview.video_path = str(target_path)
+    db.add(interview)
+    db.commit()
+    db.refresh(interview)
+
+    return {
+        "status": "video upload - OK",
+        "filename": original_name,
+        "stored_path": interview.video_path,
+    }
+
+
+# --- Interview analysis endpoint ---
+@app.post("/interviews/{interview_id}/analyze")
+def analyze_interview(
+    interview_id: int,
         raise HTTPException(status_code=404, detail="Mülakat bulunamadı")
     if interview.user_id != current_user.id:
         raise HTTPException(
@@ -1092,6 +1140,73 @@ def chat(
         .first()
     )
     if not interview:
+        raise HTTPException(status_code=404, detail="Interview not found")
+    if interview.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You do not have access to this interview")
+
+    # 1) Transcript (dummy if video/API missing; real via Whisper otherwise)
+    text, duration_seconds, stt_fallback_reason, stt_error_detail = stt.get_transcript(
+        interview_id=interview_id,
+        video_path=interview.video_path,
+    )
+
+    # 2) Upsert into Transcript table
+    transcript_row = db.query(models.Transcript).filter(models.Transcript.interview_id == interview_id).first()
+    if transcript_row:
+        transcript_row.text = text
+        transcript_row.duration_seconds = duration_seconds
+    else:
+        transcript_row = models.Transcript(
+            interview_id=interview_id,
+            text=text,
+            duration_seconds=duration_seconds,
+        )
+        db.add(transcript_row)
+
+    # 3) Rule-based scoring (transcript) + basic video metrics
+    feedback_data = scoring.score_transcript(text, duration_seconds=duration_seconds)
+
+    video_metrics = {}
+    if interview.video_path:
+        try:
+            video_metrics = video_features.extract_features(interview.video_path)
+        except Exception:
+            video_metrics = {}
+
+    # Merge scores + video metrics into a single dict for storage
+    combined_scores = dict(feedback_data.get("scores", {}))
+    combined_scores["video_metrics"] = video_metrics
+    scores_json = json.dumps(combined_scores, ensure_ascii=False)
+
+    feedback_row = db.query(models.Feedback).filter(models.Feedback.interview_id == interview_id).first()
+    if feedback_row:
+        feedback_row.scores_json = scores_json
+        feedback_row.summary = feedback_data.get("summary")
+        feedback_row.strengths = feedback_data.get("strengths")
+        feedback_row.improvements = feedback_data.get("improvements")
+    else:
+        feedback_row = models.Feedback(
+            interview_id=interview_id,
+            scores_json=scores_json,
+            summary=feedback_data.get("summary"),
+            strengths=feedback_data.get("strengths"),
+            improvements=feedback_data.get("improvements"),
+        )
+        db.add(feedback_row)
+
+    db.commit()
+
+    return {
+        "status": "analyze - OK",
+        "transcript": transcript_row.text,
+        "duration_seconds": transcript_row.duration_seconds,
+        "scores": combined_scores,
+        "summary": feedback_data.get("summary"),
+        "strengths": feedback_data.get("strengths"),
+        "improvements": feedback_data.get("improvements"),
+        "stt_fallback_reason": stt_fallback_reason,
+        "stt_error_detail": stt_error_detail,
+    }
         raise HTTPException(status_code=404, detail="Mülakat bulunamadı")
     if interview.user_id != current_user.id:
         raise HTTPException(
