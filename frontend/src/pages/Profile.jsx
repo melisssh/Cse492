@@ -39,7 +39,6 @@ export default function Profile() {
   const [university, setUniversity] = useState('')
   const [department, setDepartment] = useState('')
   const [class_year, setClassYear] = useState('')
-  const [cvFile, setCvFile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [cvUploading, setCvUploading] = useState(false)
@@ -83,9 +82,9 @@ export default function Profile() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          full_name: full_name || null,
-          university: university || null,
-          department: department || null,
+          full_name: (full_name || '').trim(),
+          university: (university || '').trim(),
+          department: (department || '').trim(),
           class_year: class_year || null,
         }),
       })
@@ -133,12 +132,8 @@ export default function Profile() {
   if (loading) return (
     <div style={{ minHeight: '100vh', background: '#fff' }}>
       <header style={headerStyle}>
-        <Link to="/dashboard" style={{ fontSize: '1.25rem', fontWeight: 600, color: '#111', textDecoration: 'none' }}>
-          Mülakat Simülasyonu
-        </Link>
-        <Link to="/dashboard" style={{ fontSize: '0.95rem', color: '#374151', textDecoration: 'none' }}>
-          Dashboard'a dön
-        </Link>
+        <Link to="/dashboard" style={{ fontSize: '1.25rem', fontWeight: 600, color: '#111', textDecoration: 'none' }}>Mülakat Simülasyonu</Link>
+        <Link to="/dashboard" style={{ fontSize: '0.95rem', color: '#374151', textDecoration: 'none' }}>Dashboard'a dön</Link>
       </header>
       <div style={{ padding: '3rem 1.5rem', textAlign: 'center', color: '#6b7280' }}>Yükleniyor...</div>
     </div>
@@ -147,78 +142,39 @@ export default function Profile() {
   return (
     <div style={{ minHeight: '100vh', background: '#f5f5f5' }}>
       <header style={headerStyle}>
-        <Link to="/dashboard" style={{ fontSize: '1.25rem', fontWeight: 600, color: '#111', textDecoration: 'none' }}>
-          Mülakat Simülasyonu
-        </Link>
-        <Link to="/dashboard" style={{ fontSize: '0.95rem', color: '#374151', textDecoration: 'none' }}>
-          Dashboard'a dön
-        </Link>
+        <Link to="/dashboard" style={{ fontSize: '1.25rem', fontWeight: 600, color: '#111', textDecoration: 'none' }}>Mülakat Simülasyonu</Link>
+        <Link to="/dashboard" style={{ fontSize: '0.95rem', color: '#374151', textDecoration: 'none' }}>Dashboard'a dön</Link>
       </header>
       <div style={{ maxWidth: 500, margin: '0 auto', padding: '3rem 1.5rem', background: '#fff', minHeight: 'calc(100vh - 57px)', boxSizing: 'border-box' }}>
-        <h1 style={{ fontSize: '2rem', fontWeight: 700, color: '#111', marginBottom: '0.5rem', lineHeight: 1.2 }}>
-          Profil
-        </h1>
+        <h1 style={{ fontSize: '2rem', fontWeight: 700, color: '#111', marginBottom: '0.5rem', lineHeight: 1.2 }}>Profil</h1>
         <p style={{ fontSize: '1rem', color: '#6b7280', marginBottom: '1.5rem', lineHeight: 1.5 }}>
-          Bu bilgiler mülakat sorularına katkı sağlar. Kayıt sonrası profili doldurmanız gerekir.
+          Tüm alanlar zorunludur. CV yükledikten sonra mülakat oluşturabilirsiniz.
         </p>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           <label style={labelStyle}>
             Ad Soyad *
-            <input
-              type="text"
-              value={full_name}
-              onChange={(e) => setFullName(e.target.value)}
-              required
-              placeholder="Adınız soyadınız"
-              style={inputStyle}
-            />
+            <input type="text" value={full_name} onChange={(e) => setFullName(e.target.value)} required placeholder="Adınız soyadınız" style={inputStyle} />
           </label>
           <label style={labelStyle}>
-            Üniversite
-            <input
-              type="text"
-              value={university}
-              onChange={(e) => setUniversity(e.target.value)}
-              placeholder="Üniversite adı"
-              style={inputStyle}
-            />
+            Okul (üniversite) *
+            <input type="text" value={university} onChange={(e) => setUniversity(e.target.value)} required placeholder="Üniversite adı" style={inputStyle} />
           </label>
           <label style={labelStyle}>
-            Bölüm
-            <input
-              type="text"
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              placeholder="Bölüm"
-              style={inputStyle}
-            />
+            Bölüm *
+            <input type="text" value={department} onChange={(e) => setDepartment(e.target.value)} required placeholder="Bölüm" style={inputStyle} />
           </label>
           <label style={labelStyle}>
             Sınıf
-            <input
-              type="text"
-              value={class_year}
-              onChange={(e) => setClassYear(e.target.value)}
-              placeholder="Örn. 3, 4. sınıf"
-              style={inputStyle}
-            />
+            <input type="text" value={class_year} onChange={(e) => setClassYear(e.target.value)} placeholder="Örn. 3, 4. sınıf" style={inputStyle} />
           </label>
           <label style={labelStyle}>
-            CV (PDF veya dosya)
-            <input
-              type="file"
-              accept=".pdf,.doc,.docx"
-              onChange={handleCvUpload}
-              disabled={cvUploading}
-              style={inputStyle}
-            />
+            CV (PDF) * – Mülakat oluşturmak için CV yüklemeniz gerekiyor.
+            <input type="file" accept=".pdf,.doc,.docx" onChange={handleCvUpload} disabled={cvUploading} style={inputStyle} />
             {cvUploading && <span style={{ fontSize: '0.9rem', color: '#6b7280', marginTop: '0.25rem', display: 'block' }}>Yükleniyor...</span>}
           </label>
           {message && <p style={{ color: '#059669', margin: 0, fontSize: '0.95rem' }}>{message}</p>}
           {error && <p style={{ color: '#dc2626', margin: 0, fontSize: '0.9rem' }}>{error}</p>}
-          <button type="submit" disabled={saving} style={{ ...primaryButtonStyle, opacity: saving ? 0.7 : 1 }}>
-            {saving ? 'Kaydediliyor...' : 'Kaydet'}
-          </button>
+          <button type="submit" disabled={saving} style={{ ...primaryButtonStyle, opacity: saving ? 0.7 : 1 }}>{saving ? 'Kaydediliyor...' : 'Kaydet'}</button>
         </form>
       </div>
     </div>

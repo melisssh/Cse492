@@ -16,7 +16,10 @@ import random
 import smtplib
 import ssl
 from email.message import EmailMessage
+from typing import List, Dict
 from uuid import uuid4
+import urllib.request
+import urllib.error
 
 import jwt
 from pydantic import BaseModel, EmailStr
@@ -98,6 +101,38 @@ def create_access_token(data: dict):
 
 
 def send_email(to_email: str, subject: str, body: str):
+    # 1) Resend (HTTP API) — recommended for prototypes
+    resend_key = os.getenv("RESEND_API_KEY")
+    if resend_key:
+        email_from = os.getenv("EMAIL_FROM", "onboarding@resend.dev")
+        payload = {
+            "from": email_from,
+            "to": [to_email],
+            "subject": subject,
+            "text": body,
+        }
+        req = urllib.request.Request(
+            "https://api.resend.com/emails",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {resend_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                if 200 <= resp.status < 300:
+                    return
+                raw = resp.read().decode("utf-8", errors="replace")
+                raise HTTPException(status_code=500, detail=f"Mail gönderilemedi (Resend): {raw}")
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode("utf-8", errors="replace") if hasattr(e, "read") else str(e)
+            raise HTTPException(status_code=500, detail=f"Mail gönderilemedi (Resend): {raw}")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Mail gönderilemedi (Resend): {repr(e)}")
+
+    # 2) SMTP fallback
     smtp_host = os.getenv("SMTP_HOST")
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER")
@@ -146,6 +181,134 @@ def require_admin(current_user: models.User = Depends(get_current_user)):
     if not getattr(current_user, "is_admin", 0):
         raise HTTPException(status_code=403, detail="Yalnızca adminler erişebilir.")
     return current_user
+
+
+def _parse_questions_json(raw: str) -> List[Dict]:
+    """Model cevabından [{"text": "..."}, ...] listesini çıkarır."""
+    raw = (raw or "").strip()
+    if raw.startswith("```"):
+        parts = raw.split("```")
+        if len(parts) >= 3:
+            raw = parts[1]
+        raw = raw.replace("json", "", 1).strip()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    cleaned: List[Dict] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        text = (item.get("text") or "").strip()
+        if not text:
+            continue
+        cleaned.append({"text": text})
+    return cleaned
+
+
+def generate_questions_with_ai(
+    *,
+    position: str,
+    company_name: str | None,
+    department_name: str | None,
+    domain: str,
+    language: str,
+    cv_text: str | None,
+    profile_university: str | None,
+    profile_department: str | None,
+    profile_class_year: str | None,
+    n_questions: int = 6,
+    pool_question_texts: list[str] | None = None,
+) -> List[Dict]:
+    """
+    GEMINI_API_KEY veya GOOGLE_API_KEY ile Gemini kullanarak mülakat soruları üretir.
+    Her eleman {"text": "..."}. Anahtar yoksa veya hata olursa boş liste.
+    """
+    trimmed_cv = (cv_text or "")[:3000]
+
+    pool_block = ""
+    if pool_question_texts:
+        trimmed = [t.strip()[:400] for t in pool_question_texts if t and t.strip()][:20]
+        if trimmed:
+            pool_block = (
+                "\n\nSistemdeki soru havuzundan örnekler (aynı kategori/dil; bunları aynen kopyalama, "
+                "üslup ve zorluk için referans al, yeni ve farklı sorular üret):\n"
+                + "\n".join(f"- {line}" for line in trimmed)
+            )
+
+    system_content = (
+        "Sen bir mülakat asistanısın.\n"
+        "- Verilen pozisyon, şirket, departman ve aday bilgilerine göre MÜLAKAT SORULARI üretirsin.\n"
+        "- Sorular pozisyona ve adayın seviyesine uygun, net, tekrar etmeyen ve gerçekçi olmalıdır.\n"
+        "- ÇIKTIYI SADECE GEÇERLİ BİR JSON DİZİSİ OLARAK döndür. Açıklama, yorum, fazladan metin yazma."
+    )
+
+    user_content = f"""
+Pozisyon: {position}
+Şirket: {company_name or '-'}
+Departman: {department_name or '-'}
+Kategori (domain): {domain}
+Dil: {language}
+
+Aday bilgileri (profil):
+- Üniversite: {profile_university or '-'}
+- Bölüm: {profile_department or '-'}
+- Sınıf/Yıl: {profile_class_year or '-'}
+
+Adayın CV metni (özet):
+{trimmed_cv or '-'}
+{pool_block}
+
+İSTEKLER:
+- Toplam {n_questions} adet mülakat sorusu üret.
+- Eğer domain TEKNİK ise:
+  - Soruların TAMAMI teknik olsun (programlama, veri yapıları, veritabanı, kullanılan teknolojiler, projeler vb.).
+- Eğer domain GENEL / DAVRANIŞSAL ise:
+  - Soruların TAMAMI davranışsal / soft-skill odaklı olsun (takım çalışması, iletişim, zorluklarla başa çıkma, geri bildirim, motivasyon vb.).
+- Sorular DİL alanına göre yazılsın (örneğin 'tr' ise tamamen Türkçe).
+
+ÇIKTI FORMATIN:
+Sadece aşağıdaki yapıda GEÇERLİ BİR JSON LİSTESİ döndür:
+
+[
+  {{
+    "text": "Soru metni burada"
+  }},
+  ...
+]
+
+JSON dışında hiçbir şey yazma.
+"""
+
+    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    if not gemini_key:
+        return []
+
+    try:
+        import google.generativeai as genai  # type: ignore
+
+        genai.configure(api_key=gemini_key)
+        # gemini-1.5-flash birçok hesapta v1beta'ta artık yok; güncel liste: ai.google.dev/gemini-api/docs/models
+        model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        model = genai.GenerativeModel(
+            model_name=model_name,
+            system_instruction=system_content,
+        )
+        response = model.generate_content(user_content)
+        raw_text = ""
+        if response.candidates:
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, "text") and part.text:
+                    raw_text += part.text
+        if not raw_text:
+            raw_text = getattr(response, "text", None) or "[]"
+        return _parse_questions_json(raw_text)
+    except Exception as e:
+        print("GEMINI QUESTION GENERATION ERROR:", repr(e))
+        return []
+
 
 # Kullanıcı oluştur
 class CreateUserRequest(BaseModel):
@@ -294,7 +457,15 @@ def reset_password(
 @app.get("/users")
 def get_users(db: Session = Depends(get_db)):
     users = db.query(models.User).all()
-    return users
+    # Asla password hash döndürme
+    return [
+        {
+            "id": u.id,
+            "email": u.email,
+            "is_admin": getattr(u, "is_admin", 0),
+        }
+        for u in users
+    ]
 
 # Login endpoint – başarılı girişte JWT token döner
 class LoginRequest(BaseModel):
@@ -427,6 +598,15 @@ class InterviewStatusUpdate(BaseModel):
     status: str
 
 
+class DebugGenerateQuestionsRequest(BaseModel):
+    position: str
+    company_name: str | None = None
+    department_name: str | None = None
+    domain: str
+    language: str = "tr"
+    n_questions: int = 6
+
+
 # --- Soru havuzu endpoint'leri (GET/POST/PUT) ---
 @app.get("/questions")
 def get_questions(
@@ -446,6 +626,9 @@ def get_questions(
         query = query.filter(models.Question.is_active == is_active)
 
     questions = query.all()
+    creator_ids = {q.created_by for q in questions if q.created_by}
+    creators = db.query(models.User).filter(models.User.id.in_(creator_ids)).all() if creator_ids else []
+    creator_emails = {u.id: u.email for u in creators}
     return [
         {
             "id": q.id,
@@ -454,6 +637,9 @@ def get_questions(
             "language": q.language,
             "difficulty": q.difficulty,
             "is_active": q.is_active,
+            "created_by": q.created_by,
+            "created_at": q.created_at.isoformat() if q.created_at else None,
+            "created_by_email": creator_emails.get(q.created_by) if q.created_by else None,
         }
         for q in questions
     ]
@@ -471,6 +657,7 @@ def create_question(
         language=payload.language,
         difficulty=payload.difficulty,
         is_active=payload.is_active,
+        created_by=current_admin.id,
     )
     db.add(new_q)
     db.commit()
@@ -482,7 +669,25 @@ def create_question(
         "language": new_q.language,
         "difficulty": new_q.difficulty,
         "is_active": new_q.is_active,
+        "created_by": new_q.created_by,
+        "created_at": new_q.created_at.isoformat() if new_q.created_at else None,
+        "created_by_email": current_admin.email,
     }
+
+
+@app.delete("/questions/{question_id}")
+def delete_question(
+    question_id: int,
+    db: Session = Depends(get_db),
+    current_admin: models.User = Depends(require_admin),
+):
+    q = db.query(models.Question).filter(models.Question.id == question_id).first()
+    if not q:
+        raise HTTPException(status_code=404, detail="Soru bulunamadı")
+    db.query(models.InterviewQuestion).filter(models.InterviewQuestion.question_id == question_id).delete(synchronize_session=False)
+    db.delete(q)
+    db.commit()
+    return {"detail": "Soru silindi."}
 
 
 @app.put("/questions/{question_id}")
@@ -519,24 +724,13 @@ def update_question(
     }
 
 
-# Geçici: belirli emailleri admin yap (kullandıktan sonra silebilirsin)
-@app.post("/make-admin")
-def make_admin(db: Session = Depends(get_db)):
-    admin_emails = [
-        "melis.halamoglu@std.yeditepe.edu.tr",
-        "selin.kartal@std.yeditepe.edu.tr",
-    ]
-    users = db.query(models.User).filter(models.User.email.in_(admin_emails)).all()
-    for u in users:
-        u.is_admin = 1
-    db.commit()
-    return {"detail": f"{len(users)} kullanıcı admin yapıldı."}
-
-
 class InterviewCreate(BaseModel):
     title: str
     domain: str
     language: str
+    company_name: str | None = None
+    department_name: str | None = None
+    position: str | None = None
 
 
 @app.post("/interviews")
@@ -545,18 +739,42 @@ def create_interview(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    profile = (
+        db.query(models.Profile)
+        .filter(models.Profile.user_id == current_user.id)
+        .first()
+    )
+    if not profile or not getattr(profile, "cv_path", None):
+        raise HTTPException(
+            status_code=400,
+            detail="Mülakat oluşturmak için önce profilinize CV yüklemelisiniz.",
+        )
+
+    cn = (payload.company_name or "").strip()
+    dn = (payload.department_name or "").strip()
+    pos = (payload.position or "").strip()
+    if not cn or not dn or not pos:
+        raise HTTPException(
+            status_code=400,
+            detail="Şirket, departman ve pozisyon alanları zorunludur.",
+        )
+
     new_interview = models.Interview(
         user_id=current_user.id,
         title=payload.title,
         domain=payload.domain,
         language=payload.language,
+        company_name=cn,
+        department_name=dn,
+        position=pos,
     )
     db.add(new_interview)
     db.commit()
     db.refresh(new_interview)
 
-    # Sistem soruları seçer: domain + dildeki havuzdan en az 5, en fazla 7 rastgele
     category = db.query(models.Category).filter(models.Category.name == payload.domain).first()
+    pool: list = []
+    pool_texts: list[str] = []
     if category:
         pool = (
             db.query(models.Question)
@@ -567,18 +785,65 @@ def create_interview(
             )
             .all()
         )
-        # En az 5, en fazla 7; havuzda daha az varsa hepsini al
-        target = random.randint(5, 7)
-        count = min(target, len(pool))
+        pool_texts = [q.text for q in pool[:25]]
+
+    target_n = random.randint(5, 7)
+    cv_text = getattr(profile, "cv_text", None)
+
+    ai_list = generate_questions_with_ai(
+        position=pos,
+        company_name=cn,
+        department_name=dn,
+        domain=payload.domain,
+        language=payload.language,
+        cv_text=cv_text,
+        profile_university=profile.university,
+        profile_department=profile.department,
+        profile_class_year=profile.class_year,
+        n_questions=target_n,
+        pool_question_texts=pool_texts if pool_texts else None,
+    )
+
+    if ai_list:
+        order = 1
+        for item in ai_list[:target_n]:
+            text = (item.get("text") or "").strip()[:1024]
+            if not text:
+                continue
+            db.add(
+                models.InterviewQuestion(
+                    interview_id=new_interview.id,
+                    question_id=None,
+                    question_text=text,
+                    order=order,
+                )
+            )
+            order += 1
+        if order > 1:
+            db.commit()
+            return {
+                "id": new_interview.id,
+                "title": new_interview.title,
+                "domain": new_interview.domain,
+                "language": new_interview.language,
+                "status": new_interview.status,
+                "created_at": new_interview.created_at,
+            }
+
+    # Yedek: Gemini yok / boş döndü → havuzdan rastgele
+    if category and pool:
+        count = min(target_n, len(pool))
         if count > 0:
             chosen = random.sample(pool, count)
             for order, q in enumerate(chosen, start=1):
-                iq = models.InterviewQuestion(
-                    interview_id=new_interview.id,
-                    question_id=q.id,
-                    order=order,
+                db.add(
+                    models.InterviewQuestion(
+                        interview_id=new_interview.id,
+                        question_id=q.id,
+                        question_text=None,
+                        order=order,
+                    )
                 )
-                db.add(iq)
             db.commit()
 
     return {
@@ -589,6 +854,64 @@ def create_interview(
         "status": new_interview.status,
         "created_at": new_interview.created_at,
     }
+
+
+@app.post("/debug/generate-questions")
+def debug_generate_questions(
+    payload: DebugGenerateQuestionsRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Sadece geliştirme/test için:
+    Pozisyon + profil + CV bilgisine göre AI'dan örnek sorular üretir.
+    Veritabanına yazmaz, sadece JSON döner.
+    """
+    profile = (
+        db.query(models.Profile)
+        .filter(models.Profile.user_id == current_user.id)
+        .first()
+    )
+    if not profile:
+        raise HTTPException(status_code=400, detail="Önce profil bilgilerinizi doldurun.")
+
+    # Çoğu projede sadece cv_path var; cv_text olmayabilir.
+    # CV yüklenip yüklenmediğini cv_path üzerinden kontrol edelim.
+    if not getattr(profile, "cv_path", None):
+        raise HTTPException(status_code=400, detail="Önce profilinize CV yüklemelisiniz.")
+
+    # Varsa cv_text kullan, yoksa None geç (AI yine de çalışır, sadece CV bağlamı olmadan).
+    cv_text = getattr(profile, "cv_text", None)
+
+    pool_texts: list[str] = []
+    cat = db.query(models.Category).filter(models.Category.name == payload.domain).first()
+    if cat:
+        pool_qs = (
+            db.query(models.Question)
+            .filter(
+                models.Question.category_id == cat.id,
+                models.Question.language == payload.language,
+                models.Question.is_active == 1,
+            )
+            .all()
+        )
+        pool_texts = [q.text for q in pool_qs[:25]]
+
+    questions = generate_questions_with_ai(
+        position=payload.position,
+        company_name=payload.company_name,
+        department_name=payload.department_name,
+        domain=payload.domain,
+        language=payload.language,
+        cv_text=cv_text,
+        profile_university=getattr(profile, "university", None),
+        profile_department=getattr(profile, "department", None),
+        profile_class_year=getattr(profile, "class_year", None),
+        n_questions=payload.n_questions,
+        pool_question_texts=pool_texts if pool_texts else None,
+    )
+
+    return {"questions": questions}
 
 
 # --- Mülakat listesi (dashboard; giriş yapan kullanıcının listesi) ---
@@ -684,13 +1007,19 @@ def get_interview(
         raise HTTPException(status_code=404, detail="Mülakat bulunamadı")
     if interview.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Bu mülakata erişim yetkiniz yok")
-    # Sorular (interview_questions + questions)
+    # Sorular: havuz (question_id) veya AI üretimi (question_text)
     iqs = db.query(models.InterviewQuestion).filter(models.InterviewQuestion.interview_id == interview_id).order_by(models.InterviewQuestion.order).all()
     questions = []
     for iq in iqs:
-        q = db.query(models.Question).filter(models.Question.id == iq.question_id).first()
-        if q:
-            questions.append({"order": iq.order, "text": q.text})
+        text = None
+        if iq.question_id is not None:
+            q = db.query(models.Question).filter(models.Question.id == iq.question_id).first()
+            if q:
+                text = q.text
+        elif iq.question_text:
+            text = iq.question_text
+        if text:
+            questions.append({"order": iq.order, "text": text})
     # Transcript
     transcript_row = db.query(models.Transcript).filter(models.Transcript.interview_id == interview_id).first()
     transcript = transcript_row.text if transcript_row else None
@@ -793,7 +1122,7 @@ def analyze_interview(
     return {"detail": "Mülakat silindi."}
 
 
-# --- AI Chat (geri bildirime dayalı sohbet; OpenAI entegrasyonu) ---
+# --- AI Chat (geri bildirime dayalı sohbet; OpenAI — Gemini entegrasyonu Melis tarafında yapılabilir) ---
 class ChatMessage(BaseModel):
     message: str
 
@@ -906,7 +1235,7 @@ def chat(
     api_key = os.getenv("OPENAI_API_KEY")
     if api_key:
         try:
-            from openai import OpenAI
+            from openai import OpenAI  # type: ignore
 
             client = OpenAI(api_key=api_key)
             system_content = (

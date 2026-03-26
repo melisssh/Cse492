@@ -31,7 +31,9 @@ class Interview(Base):
     language = Column(String(20), nullable=False)
     status = Column(String(50), default="created")
     created_at = Column(DateTime, default=datetime.utcnow)
-    video_path = Column(String, nullable=True)    # path of uploaded interview video
+    company_name = Column(String(255), nullable=True)
+    department_name = Column(String(255), nullable=True)
+    position = Column(String(255), nullable=True)
 
 class Category(Base):
     __tablename__ = "categories"
@@ -49,13 +51,16 @@ class Question(Base):
     language = Column(String(10), nullable=False)
     difficulty = Column(Integer, nullable=True)
     is_active = Column(Integer, default=1)
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)  # hangi admin ekledi
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 class InterviewQuestion(Base):
     __tablename__ = "interview_questions"
 
     id = Column(Integer, primary_key=True, index=True)
     interview_id = Column(Integer, ForeignKey("interviews.id"), nullable=False)
-    question_id = Column(Integer, ForeignKey("questions.id"), nullable=False)
+    question_id = Column(Integer, ForeignKey("questions.id"), nullable=True)  # null = AI üretimi, metin question_text'te
+    question_text = Column(String(1024), nullable=True)  # AI ile üretilen soru metni (question_id null iken)
     order = Column(Integer, nullable=False)
 
 class Transcript(Base):

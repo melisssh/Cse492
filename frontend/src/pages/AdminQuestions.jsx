@@ -11,7 +11,6 @@ export default function AdminQuestions() {
   const [text, setText] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [language, setLanguage] = useState('tr')
-  const [difficulty, setDifficulty] = useState('')
 
   const token = localStorage.getItem('token')
 
@@ -36,6 +35,50 @@ export default function AdminQuestions() {
       .finally(() => setLoading(false))
   }, [token])
 
+  async function handleToggleActive(questionId, currentIsActive) {
+    setError('')
+    const newActive = currentIsActive ? 0 : 1
+    try {
+      const res = await fetch(`${API}/questions/${questionId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ is_active: newActive }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.detail || 'Güncellenemedi.')
+        return
+      }
+      setQuestions((prev) =>
+        prev.map((q) => (q.id === questionId ? { ...q, is_active: newActive } : q))
+      )
+    } catch {
+      setError('Aktif/Pasif güncellenemedi.')
+    }
+  }
+
+  async function handleDelete(questionId) {
+    if (!window.confirm('Bu soruyu silmek istediğinize emin misiniz?')) return
+    setError('')
+    try {
+      const res = await fetch(`${API}/questions/${questionId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setError(data.detail || 'Silinemedi.')
+        return
+      }
+      setQuestions((prev) => prev.filter((q) => q.id !== questionId))
+    } catch {
+      setError('Soru silinemedi.')
+    }
+  }
+
   async function handleCreate(e) {
     e.preventDefault()
     setError('')
@@ -54,7 +97,7 @@ export default function AdminQuestions() {
           text,
           category_id: Number(categoryId),
           language,
-          difficulty: difficulty ? Number(difficulty) : null,
+          difficulty: null,
           is_active: 1,
         }),
       })
@@ -66,7 +109,6 @@ export default function AdminQuestions() {
       setQuestions((prev) => [...prev, data])
       setText('')
       setCategoryId('')
-      setDifficulty('')
     } catch {
       setError('Soru eklenemedi.')
     }
@@ -143,17 +185,6 @@ export default function AdminQuestions() {
                 <option value="en">English</option>
               </select>
             </label>
-            <label style={{ fontSize: '0.9rem' }}>
-              Zorluk (1–5, opsiyonel)
-              <input
-                type="number"
-                min="1"
-                max="5"
-                value={difficulty}
-                onChange={(e) => setDifficulty(e.target.value)}
-                style={{ width: '100%', marginTop: '0.25rem', padding: '0.5rem', borderRadius: 8, border: '1px solid #e5e7eb' }}
-              />
-            </label>
             {error && (
               <p style={{ color: '#dc2626', margin: 0, fontSize: '0.9rem' }}>{error}</p>
             )}
@@ -177,7 +208,7 @@ export default function AdminQuestions() {
         </section>
 
         <section style={{ background: '#fff', padding: '1.25rem', borderRadius: 12 }}>
-          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '1rem' }}>Mevcut sorular</h2>
+          <h2 style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '1rem' }}>Tüm sorular (tüm adminlerin eklediği)</h2>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
               <thead>
@@ -186,24 +217,63 @@ export default function AdminQuestions() {
                   <th align="left">Metin</th>
                   <th align="left">Kategori</th>
                   <th align="left">Dil</th>
-                  <th align="left">Zorluk</th>
                   <th align="left">Aktif</th>
+                  <th align="left">Ekleyen</th>
+                  <th align="left">Ekleme tarihi</th>
+                  <th align="right">İşlem</th>
                 </tr>
               </thead>
               <tbody>
                 {questions.map((q) => (
                   <tr key={q.id} style={{ borderTop: '1px solid #f3f4f6' }}>
                     <td>{q.id}</td>
-                    <td>{q.text}</td>
+                    <td style={{ maxWidth: 320 }}>{q.text}</td>
                     <td>{q.category_id}</td>
                     <td>{q.language}</td>
-                    <td>{q.difficulty ?? '-'}</td>
-                    <td>{q.is_active ? 'Evet' : 'Hayır'}</td>
+                    <td>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleActive(q.id, q.is_active)}
+                        style={{
+                          padding: '0.35rem 0.75rem',
+                          fontSize: '0.85rem',
+                          background: q.is_active ? '#22c55e' : '#94a3b8',
+                          color: '#fff',
+                          border: 'none',
+                          borderRadius: 6,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {q.is_active ? 'Aktif' : 'Pasif'}
+                      </button>
+                    </td>
+                    <td>{q.created_by_email || '-'}</td>
+                    <td>{q.created_at ? new Date(q.created_at).toLocaleString('tr-TR', { dateStyle: 'short', timeStyle: 'short' }) : '-'}</td>
+                    <td align="right">
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(q.id)}
+                        style={{
+                          padding: '0.35rem 0.75rem',
+                          fontSize: '0.85rem',
+                          color: '#dc2626',
+                          background: 'transparent',
+                          border: '1px solid #dc2626',
+                          borderRadius: 6,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Sil
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          {questions.length === 0 && (
+            <p style={{ color: '#6b7280', marginTop: '1rem' }}>Henüz soru yok. Yukarıdan ekleyebilirsiniz.</p>
+          )}
         </section>
       </main>
     </div>
